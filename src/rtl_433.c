@@ -39,6 +39,7 @@ static int override_short = 0;
 static int override_long = 0;
 int debug_output = 0;
 int quiet_mode = 0;
+static unsigned timeout_mode = 0;
 
 int num_r_devices = 0;
 
@@ -85,6 +86,7 @@ void usage(r_device *devices) {
             "\t[-p <ppm_error>] (default: 0)\n"
             "\t[-s <sample rate>] Set sample rate (default: %i Hz)\n"
             "\t[-S] Force sync output (default: async)\n"
+            "\t[-T] Time (in seconds) to capture the signal.\n"
             "\t= Demodulator options =\n"
             "\t[-R <device>] Listen only for the specified remote device (can be used multiple times)\n"
             "\t[-l <level>] Change detection level used to determine pulses [0-32767] (default: %i)\n"
@@ -829,7 +831,7 @@ int main(int argc, char **argv) {
 
     demod->level_limit = DEFAULT_LEVEL_LIMIT;
 
-    while ((opt = getopt(argc, argv, "x:z:p:DtaAqm:r:l:d:f:g:s:b:n:SR:")) != -1) {
+    while ((opt = getopt(argc, argv, "x:z:p:DtaAqm:r:l:d:f:g:s:b:n:SR:T:")) != -1) {
         switch (opt) {
             case 'd':
                 dev_index = atoi(optarg);
@@ -902,6 +904,9 @@ int main(int argc, char **argv) {
  	    case 'q':
 	        quiet_mode = 1;
 		break;
+  	    case 'T':
+		timeout_mode =  (unsigned int) atoi(optarg);
+		break;
             default:
                 usage(devices);
                 break;
@@ -967,6 +972,9 @@ int main(int argc, char **argv) {
 	sigaction(SIGTERM, &sigact, NULL);
 	sigaction(SIGQUIT, &sigact, NULL);
 	sigaction(SIGPIPE, &sigact, NULL);
+	if ( timeout_mode ) {
+	    sigaction(SIGALRM, &sigact, NULL);
+	}
 #else
 	SetConsoleCtrlHandler((PHANDLER_ROUTINE) sighandler, TRUE);
 #endif
@@ -1054,7 +1062,9 @@ int main(int argc, char **argv) {
 	}
         exit(0);
     }
-
+#ifndef _WIN32
+    alarm(timeout_mode);
+#endif
     /* Reset endpoint before we start reading from it (mandatory) */
     r = rtlsdr_reset_buffer(dev);
     if (r < 0)
