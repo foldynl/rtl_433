@@ -41,8 +41,9 @@
 		DECL(esperanza_ews) \
 		DECL(efergy_e2_classic) \
 		DECL(kw9015b) \
-		DECL(generic_temperature_sensor)
-
+		DECL(generic_temperature_sensor) \
+		DECL(acurite_txr) \
+		DECL(acurite_986)
 
 typedef struct {
 	char name[256];
@@ -53,6 +54,7 @@ typedef struct {
 	int (*json_callback)(bitbuffer_t *bitbuffer);
 	unsigned int disabled;
 	unsigned long demod_arg;	// Decoder specific optional argument (may be pointer to struct)
+	char **fields;			// List of fields this decoder produces; required for CSV output. NULL-terminated.
 } r_device;
 
 #define DECL(name) extern r_device name;

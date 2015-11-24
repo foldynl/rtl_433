@@ -11,6 +11,7 @@
 
 #include "rtl_433_devices.h"
 #include "bitbuffer.h"
+#include "data.h"
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -30,7 +31,7 @@
 #define DEFAULT_LEVEL_LIMIT     8000		// Theoretical high level at I/Q saturation is 128x128 = 16384 (above is ripple)
 #define MINIMAL_BUF_LENGTH      512
 #define MAXIMAL_BUF_LENGTH      (256 * 16384)
-#define MAX_PROTOCOLS           38
+#define MAX_PROTOCOLS           40
 #define SIGNAL_GRABBER_BUFFER   (12 * DEFAULT_BUF_LENGTH)
 
 /* Supported modulation types */
@@ -76,5 +77,7 @@ struct protocol_state {
     char *name;
     unsigned long demod_arg;
 };
+
+void data_acquired_handler(data_t *data);
 
 #endif /* INCLUDE_RTL_433_H_ */
