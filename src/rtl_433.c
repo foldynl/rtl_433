@@ -36,6 +36,7 @@ uint32_t frequency[MAX_PROTOCOLS];
 time_t rawtime_old;
 int flag;
 uint32_t samp_rate = DEFAULT_SAMPLE_RATE;
+float sample_file_pos = -1;
 static uint32_t bytes_to_read = 0;
 static rtlsdr_dev_t *dev = NULL;
 static int override_short = 0;
@@ -43,6 +44,7 @@ static int override_long = 0;
 int debug_output = 0;
 int quiet_mode = 0;
 static unsigned timeout_mode = 0;
+int overwrite_mode = 0;
 
 int num_r_devices = 0;
 
@@ -86,27 +88,28 @@ void usage(r_device *devices) {
             "\t[-d <device index>] (default: 0)\n"
             "\t[-g <gain>] (default: 0 for auto)\n"
             "\t[-f <frequency>] [-f...] Receive frequency(s) (default: %i Hz)\n"
-            "\t[-p <ppm_error>] (default: 0)\n"
+            "\t[-p <ppm_error] Correct rtl-sdr tuner frequency offset error (default: 0)\n"
             "\t[-s <sample rate>] Set sample rate (default: %i Hz)\n"
             "\t[-S] Force sync output (default: async)\n"
             "\t[-T] Time (in seconds) to capture the signal.\n"
             "\t= Demodulator options =\n"
             "\t[-R <device>] Listen only for the specified remote device (can be used multiple times)\n"
-            "\t[-l <level>] Change detection level used to determine pulses [0-32767] (default: %i)\n"
+            "\t[-l <level>] Change detection level used to determine pulses [0-32767] (0 = auto) (default: %i)\n"
             "\t[-z <value>] Override short value in data decoder\n"
             "\t[-x <value>] Override long value in data decoder\n"
             "\t= Analyze/Debug options =\n"
             "\t[-a] Analyze mode. Print a textual description of the signal. Disables decoding\n"
             "\t[-A] Pulse Analyzer. Enable pulse analyzis and decode attempt\n"
             "\t[-D] Print debug info on event (repeat for more info)\n"
-	    "\t[-q] Quiet, suppress messages non-data related messages\n"
+            "\t[-q] Quiet mode, suppress non-data messages\n"
+            "\t[-W] Overwrite mode, disable checks to prevent files from being overwritten\n"
             "\t= File I/O options =\n"
             "\t[-t] Test signal auto save. Use it together with analyze mode (-a -t). Creates one file per signal\n"
-            "\t\t Note: Saves raw I/Q samples (uint8, 2 channel). Preferred mode for generating test files\n"
+            "\t\t Note: Saves raw I/Q samples (uint8 pcm, 2 channel). Preferred mode for generating test files\n"
             "\t[-r <filename>] Read data from input file instead of a receiver\n"
             "\t[-m <mode>] Data file mode for input / output file (default: 0)\n"
             "\t\t 0 = Raw I/Q samples (uint8, 2 channel)\n"
-            "\t\t 1 = AM demodulated samples (int16)\n"
+            "\t\t 1 = AM demodulated samples (int16 pcm, 1 channel)\n"
             "\t\t 2 = FM demodulated samples (int16) (experimental)\n"
             "\t\t Note: If output file is specified, input will always be I/Q\n"
             "\t[-F] kv|json|csv Produce decoded output in given format. Not yet supported by all drivers.\n"
@@ -430,9 +433,10 @@ static void classify_signal() {
 
 static void pwm_analyze(struct dm_state *demod, int16_t *buf, uint32_t len) {
     unsigned int i;
+    int32_t threshold = (demod->level_limit ? demod->level_limit : DEFAULT_LEVEL_LIMIT);	// Fix for auto level
 
     for (i = 0; i < len; i++) {
-        if (buf[i] > demod->level_limit) {
+        if (buf[i] > threshold) {
             if (!signal_start)
                 signal_start = counter;
             if (print) {
@@ -450,7 +454,7 @@ static void pwm_analyze(struct dm_state *demod, int16_t *buf, uint32_t len) {
             }
         }
         counter++;
-        if (buf[i] < demod->level_limit) {
+        if (buf[i] < threshold) {
             if (print2) {
                 pulse_avg += counter - pulse_start;
                 if (debug_output) fprintf(stderr, "pulse_end  [%d] found at sample %d, pulse length = %d, pulse avg length = %d\n",
@@ -479,8 +483,14 @@ static void pwm_analyze(struct dm_state *demod, int16_t *buf, uint32_t len) {
                     char sgf_name[256] = {0};
                     FILE *sgfp;
 
-                    sprintf(sgf_name, "gfile%03d.data", demod->signal_grabber);
-                    demod->signal_grabber++;
+		    while (1) {
+			sprintf(sgf_name, "gfile%03d.data", demod->signal_grabber);
+			demod->signal_grabber++;
+			if (access(sgf_name, F_OK) == -1 || overwrite_mode) {
+			    break;
+			}
+		    }
+
                     signal_bszie = 2 * (signal_end - (signal_start - 10000));
                     signal_bszie = (131072 - (signal_bszie % 131072)) + signal_bszie;
                     sg_idx = demod->sg_index - demod->sg_len;
@@ -536,20 +546,21 @@ err:
 static void pwm_d_decode(struct dm_state *demod, struct protocol_state* p, int16_t *buf, uint32_t len) {
     unsigned int i;
     int newevents;
+    int32_t threshold = (demod->level_limit ? demod->level_limit : DEFAULT_LEVEL_LIMIT);	// Fix for auto level
 
     for (i = 0; i < len; i++) {
-        if (buf[i] > demod->level_limit) {
+        if (buf[i] > threshold) {
             p->pulse_count = 1;
             p->start_c = 1;
         }
-        if (p->pulse_count && (buf[i] < demod->level_limit)) {
+        if (p->pulse_count && (buf[i] < threshold)) {
             p->pulse_length = 0;
             p->pulse_distance = 1;
             p->sample_counter = 0;
             p->pulse_count = 0;
         }
         if (p->start_c) p->sample_counter++;
-        if (p->pulse_distance && (buf[i] > demod->level_limit)) {
+        if (p->pulse_distance && (buf[i] > threshold)) {
             if (p->sample_counter < p->short_limit) {
                 bitbuffer_add_bit(&p->bits, 0);
             } else if (p->sample_counter < p->long_limit) {
@@ -574,79 +585,6 @@ static void pwm_d_decode(struct dm_state *demod, struct protocol_state* p, int16
             }
             events += newevents;
             bitbuffer_clear(&p->bits);
-        }
-    }
-}
-
-/* The length of pulses decodes into bits */
-
-static void pwm_p_decode(struct dm_state *demod, struct protocol_state* p, int16_t *buf, uint32_t len) {
-    unsigned int i;
-    int newevents;
-
-    for (i = 0; i < len; i++) {
-        if (buf[i] > demod->level_limit && !p->start_bit) {
-            /* start bit detected */
-            p->start_bit = 1;
-            p->start_c = 1;
-            p->sample_counter = 0;
-            //            fprintf(stderr, "start bit pulse start detected\n");
-        }
-
-        if (!p->real_bits && p->start_bit && (buf[i] < demod->level_limit)) {
-            /* end of startbit */
-            p->real_bits = 1;
-            p->sample_counter = 0;
-            //            fprintf(stderr, "start bit pulse end detected\n");
-        }
-        if (p->start_c) p->sample_counter++;
-
-
-        if (!p->pulse_start && p->real_bits && (buf[i] > demod->level_limit)) {
-            /* save the pulse start, it will never be zero */
-            p->pulse_start = p->sample_counter;
-            //           fprintf(stderr, "real bit pulse start detected\n");
-
-        }
-
-        if (p->real_bits && p->pulse_start && (buf[i] < demod->level_limit)) {
-            /* end of pulse */
-
-            p->pulse_length = p->sample_counter - p->pulse_start;
-            //           fprintf(stderr, "real bit pulse end detected %d\n", p->pulse_length);
-            //           fprintf(stderr, "space duration %d\n", p->sample_counter);
-
-            if (p->pulse_length <= p->short_limit) {
-                bitbuffer_add_bit(&p->bits, 1);
-            } else if (p->pulse_length > p->short_limit) {
-                bitbuffer_add_bit(&p->bits, 0);
-            }
-            p->sample_counter = 0;
-            p->pulse_start = 0;
-        }
-
-        if (p->real_bits && p->sample_counter > p->long_limit) {
-            bitbuffer_add_row(&p->bits);
-
-            p->start_bit = 0;
-            p->real_bits = 0;
-        }
-
-        if (p->sample_counter > p->reset_limit) {
-            p->start_c = 0;
-            p->sample_counter = 0;
-            if (p->callback)
-                newevents = p->callback(&p->bits);
-            // Debug printout
-            if(!p->callback || (debug_output && newevents > 0)) {
-                fprintf(stderr, "pwm_p_decode(): %s \n", p->name);
-                bitbuffer_print(&p->bits);
-            }
-            events += newevents;
-            bitbuffer_clear(&p->bits);
-
-            p->start_bit = 0;
-            p->real_bits = 0;
         }
     }
 }
@@ -701,9 +639,6 @@ static void rtlsdr_callback(unsigned char *iq_buf, uint32_t len, void *ctx) {
 				case OOK_PWM_D:
 					pwm_d_decode(demod, demod->r_devs[i], demod->am_buf, len / 2);
 					break;
-				case OOK_PWM_P:
-					pwm_p_decode(demod, demod->r_devs[i], demod->am_buf, len / 2);
-					break;
 				// Add pulse demodulators here
 				case OOK_PULSE_PCM_RZ:
 				case OOK_PULSE_PPM_RAW:
@@ -729,7 +664,6 @@ static void rtlsdr_callback(unsigned char *iq_buf, uint32_t len, void *ctx) {
 					switch (demod->r_devs[i]->modulation) {
 						// Old style decoders
 						case OOK_PWM_D:
-						case OOK_PWM_P:
 							break;
 						case OOK_PULSE_PCM_RZ:
 							pulse_demod_pcm(&demod->pulse_data, demod->r_devs[i]);
@@ -768,7 +702,6 @@ static void rtlsdr_callback(unsigned char *iq_buf, uint32_t len, void *ctx) {
 					switch (demod->r_devs[i]->modulation) {
 						// Old style decoders + OOK decoders
 						case OOK_PWM_D:
-						case OOK_PWM_P:
 						case OOK_PULSE_PCM_RZ:
 						case OOK_PULSE_PPM_RAW:
 						case OOK_PULSE_PWM_PRECISE:
@@ -892,7 +825,7 @@ int main(int argc, char **argv) {
 
     demod->level_limit = DEFAULT_LEVEL_LIMIT;
 
-    while ((opt = getopt(argc, argv, "x:z:p:DtaAqm:r:l:d:f:g:s:b:n:SR:F:T:")) != -1) {
+    while ((opt = getopt(argc, argv, "x:z:p:DtaAqm:r:l:d:f:g:s:b:n:SR:F:WT:")) != -1) {
         switch (opt) {
             case 'd':
                 dev_index = atoi(optarg);
@@ -980,6 +913,10 @@ int main(int argc, char **argv) {
                     usage(devices);
 		}
 		break;
+            case 'W':
+	        overwrite_mode = 1;
+		break;
+
             default:
                 usage(devices);
                 break;
@@ -1100,6 +1037,10 @@ int main(int argc, char **argv) {
 			_setmode(_fileno(stdin), _O_BINARY);
 #endif
 		} else {
+		        if (access(out_filename, F_OK) == 0 && !overwrite_mode) {
+			    fprintf(stderr, "Output file %s already exists, exiting\n", out_filename);
+			    goto out;
+			}
 			demod->out_file = fopen(out_filename, "wb");
 			if (!demod->out_file) {
 				fprintf(stderr, "Failed to open %s\n", out_filename);
@@ -1127,9 +1068,12 @@ int main(int argc, char **argv) {
 	if (!quiet_mode) {
 	    fprintf(stderr, "Test mode active. Reading samples from file: %s\n", in_filename);
 	}
-        while (fread(test_mode_buf, 131072, 1, in_file) != 0) {
-            rtlsdr_callback(test_mode_buf, 131072, demod);
+	sample_file_pos = 0.0;
+        int n_read;
+        while ((n_read = fread(test_mode_buf, 1, 131072, in_file)) != 0) {
+            rtlsdr_callback(test_mode_buf, n_read, demod);
             i++;
+	    sample_file_pos = (float)i * n_read / samp_rate;
         }
 
         // Call a last time with cleared samples to ensure EOP detection

@@ -356,13 +356,11 @@ static int acurite_txr_callback(bitbuffer_t *bitbuf) {
     float tempc, tempf, wind_dird, rainfall = 0.0, wind_speedmph;
     uint8_t humidity, sensor_status, repeat_no, message_type;
     char channel, *wind_dirstr = "";
-    time_t time_now;
     uint16_t sensor_id;
     int wind_speed, raincounter;
 
 
-    time(&time_now);
-    local_time_str(time_now, time_str);
+    local_time_str(0, time_str);
 
     if (debug_output > 1) {
         fprintf(stderr,"acurite_txr\n");
@@ -525,12 +523,10 @@ static int acurite_986_callback(bitbuffer_t *bitbuf) {
     uint8_t br[8];
     int8_t tempf; // Raw Temp is 8 bit signed Fahrenheit
     float tempc;
-    time_t time_now;
     uint16_t sensor_id, valid_cnt = 0;
     char sensor_type;
 
-    time(&time_now);
-    local_time_str(time_now, time_str);
+    local_time_str(0, time_str);
 
     if (debug_output > 1) {
         fprintf(stderr,"acurite_986\n");
@@ -628,10 +624,10 @@ static int acurite_986_callback(bitbuffer_t *bitbuf) {
 
 r_device acurite5n1 = {
     .name           = "Acurite 5n1 Weather Station",
-    .modulation     = OOK_PWM_P,
+    .modulation     = OOK_PULSE_PWM_RAW,
     .short_limit    = 70,
-    .long_limit     = 240,
-    .reset_limit    = 21000,
+    .long_limit     = 130,
+    .reset_limit    = 200,
     .json_callback  = &acurite5n1_callback,
     .disabled       = 0,
     .demod_arg      = 0,
