@@ -113,11 +113,12 @@ static int acurite_raincounter = 0;
 // FIXME< this is a checksum, not a CRC
 static int acurite_crc(uint8_t row[BITBUF_COLS], int cols) {
     // sum of first n-1 bytes modulo 256 should equal nth byte
+    // also disregard a row of all zeros
     int i;
     int sum = 0;
     for ( i=0; i < cols; i++)
         sum += row[i];
-    if ( sum % 256 == row[cols] )
+    if (sum != 0 && (sum % 256 == row[cols]))
         return 1;
     else
         return 0;
@@ -625,9 +626,9 @@ static int acurite_986_callback(bitbuffer_t *bitbuf) {
 r_device acurite5n1 = {
     .name           = "Acurite 5n1 Weather Station",
     .modulation     = OOK_PULSE_PWM_RAW,
-    .short_limit    = 70,
-    .long_limit     = 130,
-    .reset_limit    = 200,
+    .short_limit    = 280,
+    .long_limit     = 520,
+    .reset_limit    = 800,
     .json_callback  = &acurite5n1_callback,
     .disabled       = 0,
     .demod_arg      = 0,
@@ -635,21 +636,22 @@ r_device acurite5n1 = {
 
 r_device acurite_rain_gauge = {
     .name           = "Acurite 896 Rain Gauge",
-    .modulation     = OOK_PWM_D,
-    .short_limit    = 1744/4,
-    .long_limit     = 3500/4,
-    .reset_limit    = 5000/4,
+    .modulation     = OOK_PULSE_PPM_RAW,
+    .short_limit    = 1744,
+    .long_limit     = 3500,
+    .reset_limit    = 5000,
     .json_callback  = &acurite_rain_gauge_callback,
-    .disabled       = 0,
+// Disabled by default due to false positives on oregon scientific v1 protocol see issue #353
+    .disabled       = 1,
     .demod_arg      = 0,
 };
 
 r_device acurite_th = {
     .name           = "Acurite Temperature and Humidity Sensor",
-    .modulation     = OOK_PWM_D,
-    .short_limit    = 300,
-    .long_limit     = 550,
-    .reset_limit    = 2500,
+    .modulation     = OOK_PULSE_PPM_RAW,
+    .short_limit    = 1200,
+    .long_limit     = 2200,
+    .reset_limit    = 10000,
     .json_callback  = &acurite_th_callback,
     .disabled       = 0,
     .demod_arg      = 0,
@@ -667,9 +669,9 @@ r_device acurite_th = {
 r_device acurite_txr = {
     .name           = "Acurite 592TXR Temperature/Humidity Sensor and 5n1 Weather Station",
     .modulation     = OOK_PULSE_PWM_TERNARY,
-    .short_limit    = 80,
-    .long_limit     = 130,
-    .reset_limit    = 1000,
+    .short_limit    = 320,
+    .long_limit     = 520,
+    .reset_limit    = 4000,
     .json_callback  = &acurite_txr_callback,
     .disabled       = 0,
     .demod_arg      = 2,
@@ -686,9 +688,9 @@ r_device acurite_txr = {
 //r_device acurite_txr = {
 //    .name           = "Acurite 592TXR Temp/Humidity sensor",
 //    .modulation     = OOK_PULSE_PWM_PRECISE,
-//    .short_limit    = 110,
-//    .long_limit     = 65,
-//    .reset_limit    = 1000,
+//    .short_limit    = 440,
+//    .long_limit     = 260,
+//    .reset_limit    = 4000,
 //    .json_callback  = &acurite_txr_callback,
 //    .disabled       = 0,
 //    .demod_arg      = (unsigned long)&pwm_precise_param_acurite_txr,
@@ -709,9 +711,9 @@ r_device acurite_txr = {
 r_device acurite_986 = {
     .name           = "Acurite 986 Refrigerator / Freezer Thermometer",
     .modulation     = OOK_PULSE_PPM_RAW,
-    .short_limit    = 180,   // Threshold between short and long gap
-    .long_limit     = 320,
-    .reset_limit    = 1000,
+    .short_limit    = 720,   // Threshold between short and long gap
+    .long_limit     = 1280,
+    .reset_limit    = 4000,
     .json_callback  = &acurite_986_callback,
     .disabled       = 0,
     .demod_arg      = 2,

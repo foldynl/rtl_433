@@ -39,8 +39,12 @@ void bitbuffer_add_bit(bitbuffer_t *bits, int bit);
 /// Add a new row to the bitbuffer
 void bitbuffer_add_row(bitbuffer_t *bits);
 
+/// Extract (potentially unaligned) bytes from the bit buffer. Len is bits.
+void bitbuffer_extract_bytes(bitbuffer_t *bitbuffer, unsigned row,
+			     unsigned pos, uint8_t *out, unsigned len);
+
 /// Invert all bits in the bitbuffer (do not invert the empty bits)
-//void bitbuffer_invert(bitbuffer_t *bits);
+void bitbuffer_invert(bitbuffer_t *bits);
 
 /// Print the content of the bitbuffer
 void bitbuffer_print(const bitbuffer_t *bits);
@@ -59,5 +63,9 @@ unsigned bitbuffer_search(bitbuffer_t *bitbuffer, unsigned row, unsigned start,
 // (i.e. returns start + 2*outbuf->bits_per_row[0]).
 unsigned bitbuffer_manchester_decode(bitbuffer_t *inbuf, unsigned row, unsigned start,
 				     bitbuffer_t *outbuf, unsigned max);
+
+/// Find a repeated row that has a minimum count of bits.
+/// Return the row index or -1.
+int bitbuffer_find_repeated_row(bitbuffer_t *bits, unsigned min_repeats, unsigned min_bits);
 
 #endif /* INCLUDE_BITBUFFER_H_ */
